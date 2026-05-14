@@ -15,3 +15,10 @@ class User(BaseModel):
     categories = relationship("Category", back_populates="owner", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")
     uploads = relationship("Upload", back_populates="user", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+    reminder_preference = relationship(
+        "ReminderPreference",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )

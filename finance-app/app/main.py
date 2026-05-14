@@ -11,6 +11,7 @@ from app.routes.auth import router as auth_router
 from app.routes.categories import router as categories_router
 from app.routes.dashboard import router as dashboard_router
 from app.routes.health import router as health_router
+from app.routes.notifications import router as notifications_router
 from app.routes.uploads import router as uploads_router
 from app.routes.transactions import router as transactions_router
 from app.utils.logger import get_logger
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router)
     app.include_router(uploads_router)
     app.include_router(analytics_router)
+    app.include_router(notifications_router)
 
     register_exception_handlers(app)
 
