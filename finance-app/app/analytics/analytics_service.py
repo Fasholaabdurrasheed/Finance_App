@@ -24,16 +24,20 @@ from app.models.category import Category
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction
 from app.schemas.analytics import (
+    AnalyticsInterpretationResponse,
+    AnalyticsRecommendationResponse,
     CategoryAnalyticsItem,
     ConfidenceIntervalResponse,
     DescriptiveStatisticsDetailResponse,
     DescriptiveStatisticsResponse,
     DistributionAnalysisResponse,
     DistributionSummaryResponse,
+    InterpretationItem,
     MonthlyAnalyticsItem,
     PercentileItem,
     PlotlyFigureResponse,
     ProbabilityRiskAnalysisResponse,
+    RecommendationItem,
     SeasonalIndexPoint,
     SpendingTrendItem,
     ThresholdProbability,
@@ -413,6 +417,133 @@ class AnalyticsService:
             trend=TrendSummary(slope=slope, direction=direction),
             seasonal_indices=seasonal_indices,
         )
+
+    def analytics_interpretation(self, user_id: int, tx_type: TransactionType) -> AnalyticsInterpretationResponse:
+        frame = self._build_transaction_frame(user_id=user_id, tx_type=tx_type)
+        summary = compute_distribution_summary(frame["amount"]) if not frame.empty else {}
+
+        items: list[InterpretationItem] = []
+
+        skewness = float(summary.get("skewness") or 0.0)
+        if skewness > 0.5:
+            items.append(
+                InterpretationItem(
+                    title="Right-skewed behavior",
+                    level="warning",
+                    explanation="A small set of large transactions is pulling the average upward. Median-based budgeting is safer than mean-only planning.",
+                )
+            )
+        elif skewness < -0.5:
+            items.append(
+                InterpretationItem(
+                    title="Left-skewed behavior",
+                    level="info",
+                    explanation="The distribution has a heavier left tail. Most values are relatively high with occasional low values.",
+                )
+            )
+        else:
+            items.append(
+                InterpretationItem(
+                    title="Balanced skewness",
+                    level="good",
+                    explanation="Skewness is limited, so mean and median are broadly aligned for central tendency decisions.",
+                )
+            )
+
+        kurtosis = float(summary.get("kurtosis") or 0.0)
+        if kurtosis > 1.0:
+            items.append(
+                InterpretationItem(
+                    title="Heavy-tail alert",
+                    level="warning",
+                    explanation="Higher kurtosis indicates fatter tails. Rare but high-impact values are more likely than under a normal assumption.",
+                )
+            )
+        elif kurtosis < -0.5:
+            items.append(
+                InterpretationItem(
+                    title="Light-tail profile",
+                    level="good",
+                    explanation="Lower kurtosis suggests fewer extreme tail events. Volatility shocks may be less severe.",
+                )
+            )
+        else:
+            items.append(
+                InterpretationItem(
+                    title="Moderate tail risk",
+                    level="info",
+                    explanation="Kurtosis is near mesokurtic behavior. Combine with rolling variance to monitor trend stability.",
+                )
+            )
+
+        monthly = self._monthly_aggregates(self._build_transaction_frame(user_id=user_id))
+        if not monthly.empty and len(monthly) > 1:
+            latest_net = float(monthly.iloc[-1]["net"])
+            previous_net = float(monthly.iloc[-2]["net"])
+            delta = latest_net - previous_net
+            direction = "improving" if delta >= 0 else "declining"
+            items.append(
+                InterpretationItem(
+                    title="Trend signal",
+                    level="good" if delta >= 0 else "warning",
+                    explanation=f"Month-over-month net movement is {direction} by {abs(delta):.2f}. Use this to calibrate short-term cash planning.",
+                )
+            )
+
+        if frame.empty:
+            items.append(
+                InterpretationItem(
+                    title="Data sufficiency",
+                    level="warning",
+                    explanation="Not enough transactions are available for robust interpretation. Add more records for stronger inference.",
+                )
+            )
+
+        return AnalyticsInterpretationResponse(transaction_type=tx_type.value, items=items)
+
+    def analytics_recommendations(self, user_id: int, dataset_type: str | None = None) -> AnalyticsRecommendationResponse:
+        frame = self._build_transaction_frame(user_id=user_id)
+        inferred_type = dataset_type or ("time_series" if len(frame) >= 24 else "cross_sectional")
+
+        recommendations: list[RecommendationItem] = [
+            RecommendationItem(
+                area="statistical_test",
+                recommendation="Use Jarque-Bera and Shapiro-Wilk normality checks before parametric tests.",
+                rationale="Distribution shape controls whether mean-based inference is valid.",
+                priority="high",
+            ),
+            RecommendationItem(
+                area="forecasting",
+                recommendation="Apply rolling moving-average baseline and compare to ETS/ARIMA candidates.",
+                rationale="Baseline error establishes whether advanced forecasting adds value.",
+                priority="high",
+            ),
+            RecommendationItem(
+                area="regression",
+                recommendation="Run category-level regression with lagged expenses and seasonal month indicators.",
+                rationale="Lag terms and seasonality improve explanatory strength for financial behavior.",
+                priority="medium",
+            ),
+            RecommendationItem(
+                area="probability",
+                recommendation="Estimate exceedance probabilities for dynamic thresholds (mean + k*std).",
+                rationale="Risk communication improves when probabilities are tied to actionable thresholds.",
+                priority="high",
+            ),
+        ]
+
+        if frame.empty:
+            recommendations.insert(
+                0,
+                RecommendationItem(
+                    area="data_quality",
+                    recommendation="Increase data frequency with daily entries or uploads before advanced modeling.",
+                    rationale="Sparse data causes unstable parameter estimates and weak anomaly detection.",
+                    priority="high",
+                ),
+            )
+
+        return AnalyticsRecommendationResponse(dataset_type=inferred_type, recommendations=recommendations)
 
     def _build_transaction_frame(self, user_id: int, tx_type: TransactionType | None = None) -> pd.DataFrame:
         query = (

@@ -168,3 +168,26 @@ class TimeSeriesAnalyticsResponse(BaseModel):
     points: list[TimeSeriesPoint]
     trend: TrendSummary
     seasonal_indices: list[SeasonalIndexPoint]
+
+
+class InterpretationItem(BaseModel):
+    title: str
+    level: str
+    explanation: str
+
+
+class AnalyticsInterpretationResponse(BaseModel):
+    transaction_type: str
+    items: list[InterpretationItem]
+
+
+class RecommendationItem(BaseModel):
+    area: str
+    recommendation: str
+    rationale: str
+    priority: str
+
+
+class AnalyticsRecommendationResponse(BaseModel):
+    dataset_type: str
+    recommendations: list[RecommendationItem]

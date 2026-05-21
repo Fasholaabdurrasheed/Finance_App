@@ -28,6 +28,18 @@ class TransactionResponse(BaseModel):
     type: TransactionType
     transaction_date: date
     category_id: int | None
+    category_name: str | None = None
     description: str | None
 
     model_config = {"from_attributes": True}
+
+
+class BulkTransactionCreateRequest(BaseModel):
+    transactions: list[TransactionCreate] = Field(default_factory=list, min_length=1, max_length=500)
+
+
+class BulkTransactionCreateResponse(BaseModel):
+    created_count: int
+    failed_count: int
+    created: list[TransactionResponse]
+    errors: list[str] = Field(default_factory=list)

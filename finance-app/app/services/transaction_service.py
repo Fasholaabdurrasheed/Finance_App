@@ -1,6 +1,7 @@
 from datetime import date
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.category import Category
@@ -20,6 +21,9 @@ class TransactionService:
         end_date: date | None,
         category_id: int | None,
         tx_type: TransactionType | None,
+        search: str | None = None,
+        sort_by: str = "transaction_date",
+        sort_order: str = "desc",
     ) -> list[Transaction]:
         query = self.db.query(Transaction).filter(Transaction.user_id == user_id)
 
@@ -32,7 +36,28 @@ class TransactionService:
         if tx_type:
             query = query.filter(Transaction.type == tx_type)
 
-        return query.order_by(Transaction.transaction_date.desc(), Transaction.id.desc()).all()
+        if search:
+            term = f"%{search.strip()}%"
+            query = query.outerjoin(Category, Category.id == Transaction.category_id).filter(
+                or_(
+                    Transaction.description.ilike(term),
+                    Category.name.ilike(term),
+                )
+            )
+
+        order_column_map = {
+            "transaction_date": Transaction.transaction_date,
+            "amount": Transaction.amount,
+            "created_at": Transaction.created_at,
+            "id": Transaction.id,
+        }
+        order_column = order_column_map.get(sort_by, Transaction.transaction_date)
+        if sort_order.lower() == "asc":
+            query = query.order_by(order_column.asc(), Transaction.id.asc())
+        else:
+            query = query.order_by(order_column.desc(), Transaction.id.desc())
+
+        return query.all()
 
     def create(self, user_id: int, payload: TransactionCreate) -> Transaction:
         self._validate_category_ownership(user_id, payload.category_id)
@@ -49,6 +74,34 @@ class TransactionService:
         self.db.commit()
         self.db.refresh(tx)
         return tx
+
+    def create_bulk(self, user_id: int, payloads: list[TransactionCreate]) -> tuple[list[Transaction], list[str]]:
+        created: list[Transaction] = []
+        errors: list[str] = []
+
+        for index, payload in enumerate(payloads, start=1):
+            try:
+                self._validate_category_ownership(user_id, payload.category_id)
+                tx = Transaction(
+                    user_id=user_id,
+                    category_id=payload.category_id,
+                    amount=payload.amount,
+                    type=payload.type,
+                    description=payload.description,
+                    transaction_date=payload.transaction_date,
+                )
+                self.db.add(tx)
+                self.db.commit()
+                self.db.refresh(tx)
+                created.append(tx)
+            except HTTPException as exc:
+                self.db.rollback()
+                errors.append(f"Row {index}: {exc.detail}")
+            except Exception as exc:
+                self.db.rollback()
+                errors.append(f"Row {index}: {str(exc)}")
+
+        return created, errors
 
     def update(self, user_id: int, tx_id: int, payload: TransactionUpdate) -> Transaction:
         tx = self._get_owned_transaction(user_id, tx_id)
