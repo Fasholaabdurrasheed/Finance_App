@@ -6,6 +6,8 @@ from app.database.session import get_db
 from app.models.enums import TransactionType
 from app.models.user import User
 from app.schemas.analytics import (
+    AnalyticsInterpretationResponse,
+    AnalyticsRecommendationResponse,
     CategoryAnalyticsItem,
     DescriptiveStatisticsDetailResponse,
     DescriptiveStatisticsResponse,
@@ -112,3 +114,21 @@ async def time_series(
         moving_window=moving_window,
         rolling_window=rolling_window,
     )
+
+
+@router.get("/interpretation", response_model=AnalyticsInterpretationResponse)
+async def analytics_interpretation(
+    tx_type: TransactionType = Query(default=TransactionType.EXPENSE),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AnalyticsInterpretationResponse:
+    return AnalyticsService(db).analytics_interpretation(current_user.id, tx_type)
+
+
+@router.get("/recommendations", response_model=AnalyticsRecommendationResponse)
+async def analytics_recommendations(
+    dataset_type: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AnalyticsRecommendationResponse:
+    return AnalyticsService(db).analytics_recommendations(current_user.id, dataset_type=dataset_type)
