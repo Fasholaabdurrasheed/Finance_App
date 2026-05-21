@@ -339,9 +339,10 @@ async def upload_excel_transactions(
         return result
     except HTTPException:
         # mark upload as failed with provided details
+        db.rollback()
         upload.status = "failed"
         try:
-            ImportJobService(db).mark_failed(job, error=str(upload.status))
+            ImportJobService(db).mark_failed(job, error="Upload processing failed")
         except Exception:
             pass
         db.add(upload)
@@ -352,6 +353,7 @@ async def upload_excel_transactions(
             f"Excel upload failed with exception: {exc}, user_id={current_user.id}",
             exc_info=True
         )
+        db.rollback()
         upload.status = "failed"
         upload.error = str(exc)
         try:
